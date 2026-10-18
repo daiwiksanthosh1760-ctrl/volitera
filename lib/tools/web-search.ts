@@ -8,23 +8,21 @@ import Parallel from 'parallel-web';
 import FirecrawlApp, { SearchResultWeb, SearchResultNews, SearchResultImages, Document } from '@mendable/firecrawl-js';
 import { all } from 'better-all';
 import { getBetterAllOptions } from '@/lib/better-all';
+import { resolveSearchProvider, type SearchProvider, type ResolvedSearchProvider } from '@/lib/search/provider';
+import { parallelMcpSearch } from './parallel-search-mcp';
 
-// Singleton clients - initialized lazily and reused across requests
-let _searchClients: {
-  exa: Exa;
-  parallel: Parallel;
-  firecrawl: FirecrawlApp;
-} | null = null;
-
-function getSearchClients() {
-  if (!_searchClients) {
-    _searchClients = {
-      exa: new Exa(serverEnv.EXA_API_KEY),
-      parallel: new Parallel({ apiKey: serverEnv.PARALLEL_API_KEY }),
-      firecrawl: new FirecrawlApp({ apiKey: serverEnv.FIRECRAWL_API_KEY }),
-    };
-  }
-  return _searchClients;
+// Initialize only the provider being used, so anonymous search needs no SDK keys.
+let exaClient: Exa | undefined;
+let parallelClient: Parallel | undefined;
+let firecrawlClient: FirecrawlApp | undefined;
+function getFirecrawlClient() {
+  if (!serverEnv.FIRECRAWL_API_KEY) return undefined;
+  return (firecrawlClient ??= new FirecrawlApp({ apiKey: serverEnv.FIRECRAWL_API_KEY }));
+}
+function requireKey(key: string, provider: string) {
+  if (!key.trim())
+    throw new Error(`${provider} requires its API key. Choose Automatic or Parallel Search MCP for keyless search.`);
+  return key;
 }
 
 const extractDomain = (url: string | null | undefined): string => {
@@ -114,7 +112,7 @@ const formatDateForFirecrawl = (dateStr: string): string => {
 class ParallelSearchStrategy implements SearchStrategy {
   constructor(
     private parallel: Parallel,
-    private firecrawl: FirecrawlApp,
+    private firecrawl: FirecrawlApp | undefined,
   ) {}
 
   async search(
@@ -176,6 +174,7 @@ class ParallelSearchStrategy implements SearchStrategy {
                 });
               },
               firecrawlImages: async function () {
+                if (!firecrawl) return { images: [] };
                 return firecrawl
                   .search(query, {
                     sources: ['images'],
@@ -443,7 +442,7 @@ class FirecrawlSearchStrategy implements SearchStrategy {
 class ExaSearchStrategy implements SearchStrategy {
   constructor(
     private exa: Exa,
-    private firecrawl: FirecrawlApp,
+    private firecrawl: FirecrawlApp | undefined,
   ) {}
 
   async search(
@@ -498,12 +497,13 @@ class ExaSearchStrategy implements SearchStrategy {
                 ...(endPublishedDate && { endPublishedDate }),
                 contents: {
                   highlights: {
-                    maxCharacters: 4000
-                  }
+                    maxCharacters: 4000,
+                  },
                 },
               });
             },
             firecrawlImages: async function () {
+              if (!firecrawl) return { images: [] };
               return firecrawl
                 .search(query, {
                   sources: ['images'],
@@ -558,7 +558,9 @@ class ExaSearchStrategy implements SearchStrategy {
         return {
           query,
           results: deduplicateByDomainAndUrl(results),
-          images: deduplicateByDomainAndUrl(images.filter((img: { url: string; description: string }) => img.url && img.description)),
+          images: deduplicateByDomainAndUrl(
+            images.filter((img: { url: string; description: string }) => img.url && img.description),
+          ),
         };
       } catch (error) {
         console.error(`Exa search error for query "${query}":`, error);
@@ -592,37 +594,29 @@ class ExaSearchStrategy implements SearchStrategy {
   }
 }
 
-// Search provider factory
-const WEB_SEARCH_PROVIDERS = ['exa', 'parallel', 'firecrawl'] as const;
-type WebSearchProvider = (typeof WEB_SEARCH_PROVIDERS)[number];
-
-const normalizeWebSearchProvider = (provider: string): WebSearchProvider => {
-  if (provider === 'parallel' || provider === 'firecrawl' || provider === 'exa') {
-    return provider;
+// Saved selections are never replaced by the automatic resolver.
+const createSearchStrategy = (provider: Exclude<ResolvedSearchProvider, 'parallel-mcp'>): SearchStrategy => {
+  switch (provider) {
+    case 'parallel':
+      return new ParallelSearchStrategy(
+        (parallelClient ??= new Parallel({ apiKey: requireKey(serverEnv.PARALLEL_API_KEY, 'Parallel API') })),
+        getFirecrawlClient(),
+      );
+    case 'firecrawl':
+      requireKey(serverEnv.FIRECRAWL_API_KEY, 'Firecrawl');
+      return new FirecrawlSearchStrategy(getFirecrawlClient()!);
+    case 'exa':
+      return new ExaSearchStrategy(
+        (exaClient ??= new Exa(requireKey(serverEnv.EXA_API_KEY, 'Exa'))),
+        getFirecrawlClient(),
+      );
   }
-  return 'exa';
-};
-
-const createSearchStrategy = (
-  provider: WebSearchProvider,
-  clients: {
-    exa: Exa;
-    parallel: Parallel;
-    firecrawl: FirecrawlApp;
-  },
-): SearchStrategy => {
-  const strategies = {
-    parallel: () => new ParallelSearchStrategy(clients.parallel, clients.firecrawl),
-    firecrawl: () => new FirecrawlSearchStrategy(clients.firecrawl),
-    exa: () => new ExaSearchStrategy(clients.exa, clients.firecrawl),
-  };
-
-  return strategies[provider]();
 };
 
 export function webSearchTool(
   dataStream?: UIMessageStreamWriter<ChatMessage> | undefined,
-  searchProvider: WebSearchProvider = 'exa',
+  searchProvider: SearchProvider = 'auto',
+  sessionId?: string,
 ) {
   return tool({
     description: `This is the default tool of the app to be used to search the web for information with multiple queries(5-10), max results(15-20), topics, and quality.
@@ -684,21 +678,49 @@ export function webSearchTool(
         )
         .optional(),
     }),
-    execute: async ({
-      queries,
-      maxResults,
-      topics,
-      quality,
-      startDates,
-    }: {
-      queries: string[];
-      maxResults?: (number | undefined)[];
-      topics?: ('general' | 'news' | undefined)[];
-      quality?: ('default' | 'best' | undefined)[];
-      startDates?: (string | null | undefined)[];
-    }) => {
-      // Use singleton clients (initialized at module level for reuse)
-      const clients = getSearchClients();
+    execute: async (
+      {
+        queries,
+        maxResults,
+        topics,
+        quality,
+        startDates,
+      }: {
+        queries: string[];
+        maxResults?: (number | undefined)[];
+        topics?: ('general' | 'news' | undefined)[];
+        quality?: ('default' | 'best' | undefined)[];
+        startDates?: (string | null | undefined)[];
+      },
+      { abortSignal },
+    ) => {
+      abortSignal?.throwIfAborted();
+      const normalizedProvider = resolveSearchProvider(searchProvider, serverEnv);
+      if (normalizedProvider === 'parallel-mcp') {
+        const query = queries.join('; ');
+        const notify = (status: 'started' | 'completed' | 'error', resultsCount = 0) =>
+          dataStream?.write({
+            type: 'data-query_completion',
+            data: {
+              query,
+              index: 0,
+              total: 1,
+              status,
+              resultsCount,
+              imagesCount: 0,
+            },
+          });
+        notify('started');
+        try {
+          const results = await parallelMcpSearch(queries, { abortSignal, sessionId });
+          const limited = deduplicateByDomainAndUrl(results).slice(0, maxResults?.[0] ?? 10);
+          notify('completed', limited.length);
+          return { searches: [{ query, results: limited, images: [] }] };
+        } catch (error) {
+          notify('error');
+          throw error;
+        }
+      }
 
       console.log('Queries:', queries);
       console.log('Max Results:', maxResults);
@@ -708,8 +730,7 @@ export function webSearchTool(
       console.log('Search Provider:', searchProvider);
 
       // Create and use the appropriate search strategy
-      const normalizedProvider = normalizeWebSearchProvider(searchProvider);
-      const strategy = createSearchStrategy(normalizedProvider, clients);
+      const strategy = createSearchStrategy(normalizedProvider);
       if (!maxResults) {
         maxResults = new Array(queries.length).fill(10);
       }
@@ -726,14 +747,7 @@ export function webSearchTool(
         startDates: startDates as (string | null)[] | undefined,
         dataStream,
       };
-      let result = await strategy.search(queries, searchOptions);
-      const hasNoResults = result.searches.every((s) => s.results.length === 0);
-      if (hasNoResults && normalizedProvider !== 'firecrawl') {
-        console.log(`${normalizedProvider} returned no results, falling back to Firecrawl`);
-        const fallbackStrategy = createSearchStrategy('firecrawl', clients);
-        result = await fallbackStrategy.search(queries, searchOptions);
-      }
-      return result;
+      return strategy.search(queries, searchOptions);
     },
   });
 }

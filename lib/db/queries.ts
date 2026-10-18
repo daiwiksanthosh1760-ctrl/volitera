@@ -1,3 +1,5 @@
+
+import type { SearchProvider } from '@/lib/search/provider';
 import 'server-only';
 
 import { cache } from 'react';
@@ -1192,7 +1194,7 @@ export async function upsertUserPreferences({
 }: {
   userId: string;
   preferences: Partial<{
-    'scira-search-provider'?: 'exa' | 'parallel' | 'firecrawl';
+    'scira-search-provider'?: SearchProvider;
     'scira-extreme-search-model'?:
       | 'scira-ext-1'
       | 'scira-ext-2'

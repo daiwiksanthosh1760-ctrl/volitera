@@ -1,6 +1,8 @@
 // app/actions.ts
 'use server';
 
+import type { SearchProvider } from '@/lib/search/provider';
+
 import { geolocation } from '@vercel/functions';
 import { serverEnv } from '@/env/server';
 import { UIMessage, generateText, Output } from 'ai';
@@ -1606,7 +1608,7 @@ export async function getUserPreferences(providedUser?: User | null) {
 
 export async function saveUserPreferences(
   preferences: Partial<{
-    'scira-search-provider'?: 'exa' | 'parallel' | 'firecrawl';
+    'scira-search-provider'?: SearchProvider;
     'scira-extreme-search-model'?:
       | 'scira-ext-1'
       | 'scira-ext-2'
