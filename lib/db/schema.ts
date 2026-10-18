@@ -1,3 +1,5 @@
+
+import type { SearchProvider } from '@/lib/search/provider';
 import { relations } from 'drizzle-orm';
 import {
   pgTable,
@@ -342,7 +344,7 @@ export const userPreferences = pgTable('user_preferences', {
     .references(() => user.id, { onDelete: 'cascade' }),
   preferences: json('preferences')
     .$type<{
-      'scira-search-provider'?: 'exa' | 'parallel' | 'firecrawl';
+      'scira-search-provider'?: SearchProvider;
       'scira-extreme-search-model'?:
         | 'scira-ext-1'
         | 'scira-ext-2'

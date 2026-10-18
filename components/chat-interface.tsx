@@ -1,4 +1,6 @@
 'use client';
+
+import type { SearchProvider } from '@/lib/search/provider';
 /* eslint-disable @next/next/no-img-element */
 
 // React and React-related imports
@@ -226,9 +228,9 @@ const ChatInterface = memo(
       false,
     );
 
-    const [searchProvider, _] = useLocalStorage<'exa' | 'parallel' | 'firecrawl'>(
+    const [searchProvider, _] = useLocalStorage<SearchProvider>(
       'scira-search-provider',
-      'firecrawl',
+      'auto',
     );
 
     const [extremeSearchModel] = useLocalStorage<

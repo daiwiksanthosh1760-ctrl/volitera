@@ -204,9 +204,7 @@ function formatSupadataResponse(metadata: SupadataMetadata, url: string, transcr
 
 
 const supadata = new Supadata({ apiKey: serverEnv.SUPADATA_API_KEY });
-const exa = new Exa(serverEnv.EXA_API_KEY as string);
-const parallel = new Parallel({ apiKey: serverEnv.PARALLEL_API_KEY });
-const firecrawl = new FirecrawlApp({ apiKey: serverEnv.FIRECRAWL_API_KEY });
+
 
 // Helper function to retrieve content from a single URL
 async function retrieveSingleUrl(
@@ -395,6 +393,10 @@ async function retrieveSingleUrl(
         // Fall through to general scraping if Supadata fails
       }
     }
+
+    const exa = new Exa(serverEnv.EXA_API_KEY as string);
+    const parallel = new Parallel({ apiKey: serverEnv.PARALLEL_API_KEY });
+    const firecrawl = new FirecrawlApp({ apiKey: serverEnv.FIRECRAWL_API_KEY });
 
     // General web scraping with Exa/Parallel/Firecrawl
     console.log(`Retrieving content from ${url} with Exa AI, summary: ${include_summary}, livecrawl: ${live_crawl}`);

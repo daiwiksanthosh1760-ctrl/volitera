@@ -165,6 +165,34 @@ Research at the speed of thought. The agentic research platform that plans, retr
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fzaidmukaddam%2Fscira&env=XAI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,GROQ_API_KEY,GOOGLE_GENERATIVE_AI_API_KEY,DAYTONA_API_KEY,DATABASE_URL,BETTER_AUTH_SECRET,GITHUB_CLIENT_ID,GITHUB_CLIENT_SECRET,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,TWITTER_CLIENT_ID,TWITTER_CLIENT_SECRET,REDIS_URL,ELEVENLABS_API_KEY,TAVILY_API_KEY,EXA_API_KEY,SUPADATA_API_KEY,TMDB_API_KEY,YT_ENDPOINT,FIRECRAWL_API_KEY,OPENWEATHER_API_KEY,GOOGLE_MAPS_API_KEY,MAPBOX_ACCESS_TOKEN,AVIATION_STACK_API_KEY,CRON_SECRET,BLOB_READ_WRITE_TOKEN,MEM0_API_KEY,MEM0_ORG_ID,MEM0_PROJECT_ID,SMITHERY_API_KEY,NEXT_PUBLIC_MAPBOX_TOKEN,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_POSTHOG_HOST,NEXT_PUBLIC_SCIRA_PUBLIC_API_KEY,SCIRA_API_KEY&envDescription=API%20keys%20and%20configuration%20required%20for%20Scira%20to%20function)
 
+## Web search without API keys
+
+New installations use **Automatic** web search. If no `FIRECRAWL_API_KEY`,
+`EXA_API_KEY`, or `PARALLEL_API_KEY` is configured, Web mode uses
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) at
+`https://search.parallel.ai/mcp`. Anonymous search uses Fast mode and needs no
+account or API key. The free service has usage limits; errors are surfaced so
+that you can retry later or choose a configured provider.
+
+Automatic prefers configured Firecrawl, then Exa, then the Parallel API. Existing
+saved provider selections remain in effect. Select **Parallel Search MCP** in the
+Web provider menu or Settings to use anonymous search explicitly, even when keys
+are configured. A selected provider never switches to another on failure.
+Chat mode and tool permissions still control whether web search is available.
+
+MCP searches related queries together and returns text excerpts and source URLs
+for citations. Images, premium quality, and strict date/news filtering remain
+available through the existing credentialed providers. Ordinary Web search does
+not require an MCP connector or OAuth setup. Other features, including URL
+retrieval, Academic, Reddit, and Extreme modes, retain their existing API-key
+requirements; model, database, and other application setup is still required.
+
+To run the web-search regression suite with the project's dependencies installed:
+
+```bash
+bun run test:web-search
+```
+
 ## Set Scira as your default search engine
 
 1. **Open the Chrome browser settings**:
@@ -230,7 +258,7 @@ To run the application locally without Docker:
 1. Sign up for accounts with the required AI providers:
    - OpenAI (required)
    - Anthropic (required)
-   - Exa (required for web search feature)
+   - Search API keys are optional for ordinary Web mode (see below). Other search modes may require their provider keys.
 2. Copy `.env.example` to `.env.local` and fill in your API keys
 3. Install dependencies:
    ```bash
